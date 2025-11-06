@@ -107,6 +107,26 @@ def get_short_reason(musical, mbti):
 st.write("원하는 MBTI를 선택하면 추천과 관극스타일을 알려줘요.")
 choice = st.selectbox("너의 MBTI를 골라봐~ 🧾", mbti_list)
 
+# 국내 창작 뮤지컬 목록 (별도 버튼용)
+KR_MUSICALS = [
+    "베르테르", "호프: 읽히지 않은 책과 읽히지 않은 삶", "엑스칼리버", "웃는 남자",
+    "드라큘라", "서편제", "난설", "문스토리", "광화문 연가",
+]
+
+colA, colB = st.columns(2)
+with colA:
+    if st.button("추천 받을래요 🎟️"):
+        display_recommendation(choice)
+        st.balloons()
+
+with colB:
+    if st.button("국내 창작뮤지컬만 보기 🇰🇷✨"):
+        st.subheader("국내 창작뮤지컬 목록 📚 (랜덤 2편 추천)")
+        picks = random.sample(KR_MUSICALS, 2)
+        st.write(f"**1. {picks[0]}**")
+        st("원하는 MBTI를 선택하면 추천과 관극스타일을 알려줘요.")
+choice = st.selectbox("너의 MBTI를 골라봐~ 🧾", mbti_list)
+
 if st.button("추천 받을래요 🎟️"):
     display_recommendation(choice)
     st.balloons()
