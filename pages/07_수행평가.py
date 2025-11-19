@@ -1,160 +1,59 @@
-"""
-t1_match_scraper.py
-- 목적: op.gg + 네이버 e스포츠를 메인 소스로 사용하여 T1의 경기 기록을 수집하고,
-  월별/리그별 승률과 국내팀 상대전적을 계산하여 CSV 파일로 저장합니다.
-- 출력:
-    ./monthly_winrate.csv
-    ./league_winrate.csv
-    ./head2head_domestic.csv
-- 필요 패키지: requests, beautifulsoup4, pandas, tqdm, selenium (optional)
-- 사용법:
-    pip install requests beautifulsoup4 pandas tqdm selenium webdriver-manager
-    python t1_match_scraper.py
-- 실행 결과: 스크립트 실행 폴더에 CSV가 생성됩니다.
-"""
-
-import re
-import time
-import json
-from datetime import datetime
-from collections import defaultdict
+import streamlit as st
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
-from tqdm import tqdm
+import plotly.express as px
 
-# Selenium fallback for JS-rendered pages
-USE_SELENIUM_FALLBACK = True
-try:
-    if USE_SELENIUM_FALLBACK:
-        from selenium import webdriver
-        from selenium.webdriver.chrome.options import Options
-        from webdriver_manager.chrome import ChromeDriverManager
-        SELENIUM_OK = True
-    else:
-        SELENIUM_OK = False
-except Exception:
-    SELENIUM_OK = False
+st.set_page_config(page_title="예술의전당 장르 분석", layout="wide")
 
-# --- 설정: 크롤링 대상(수정 가능) ---
-OPGG_TEAM_URL = "https://esports.op.gg/teams/385/t1"  # OP.GG T1 팀 페이지
-NAVER_ESPORTS_BASE = "https://game.naver.com/esports/League_of_Legends"  # 네이버 e스포츠 LoL 홈
+st.title("🎭 예술의전당 공연/전시 장르 분석 🖼️")
+st.write("연도를 선택하면 그 해에 제일 인기 많았던 장르를 보여줍니다. 😎")
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/114.0.0.0 Safari/537.36"
-}
+# CSV 파일 불러오기
+df = pd.read_csv("예술의전당_공연 및 전시 안내_20250514.csv")
 
-# --- 유틸: selenium 렌더링 함수 ---
-def render_url_with_selenium(url, wait_seconds=1.0):
-    if not SELENIUM_OK:
-        raise RuntimeError("Selenium not available; install selenium and webdriver-manager or disable fallback.")
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
-    try:
-        driver.get(url)
-        time.sleep(wait_seconds)
-        html = driver.page_source
-    finally:
-        driver.quit()
-    return html
+# '연도' 컬럼 만들기 (공연 시작일 기준)
+if '공연시작일' in df.columns:
+    df['연도'] = pd.to_datetime(df['공연시작일'], errors='coerce').dt.year
+else:
+    st.error("공연 시작일 컬럼이 없어요 ㅠㅠ 파일 확인해 주세요!")
+    st.stop()
 
-# --- 1) OP.GG에서 가능한 한 경기 목록 수집 ---
-def scrape_opgg_team_matches(year=None, max_pages=6):
-    """
-    시도 순서:
-      1) requests로 team page에서 'match list' 블록을 바로 파싱 시도
-      2) 결과가 불충분하면 Selenium으로 렌더링해서 다시 파싱
-    반환: list of dict {date, opponent, result, league, score, url_source}
-    """
-    results = []
+# 연도 선택
+years = sorted(df['연도'].dropna().unique())
+selected_year = st.selectbox("🔹 연도를 선택해 주세요", years)
 
-    # OP.GG 팀 페이지 (기본)
-    html = None
-    try:
-        r = requests.get(OPGG_TEAM_URL, headers=HEADERS, timeout=12)
-        if r.status_code == 200 and len(r.text) > 2000:
-            html = r.text
-    except Exception:
-        html = None
+# 선택한 연도 데이터 필터링
+year_data = df[df['연도'] == selected_year]
 
-    # fallback
-    if (not html or "Match schedules" not in html) and SELENIUM_OK:
-        try:
-            html = render_url_with_selenium(OPGG_TEAM_URL, wait_seconds=1.2)
-        except Exception:
-            pass
+if '장르' not in year_data.columns:
+    st.error("장르 컬럼이 없네요! 파일 구조 확인 필수 🔍")
+    st.stop()
 
-    if not html:
-        raise RuntimeError("OP.GG 페이지를 가져오지 못했습니다. 네트워크 또는 Selenium 설치를 확인하세요.")
+# 장르별 공연 수 집계
+genre_count = year_data['장르'].value_counts().reset_index()
+genre_count.columns = ['장르', '횟수']
 
-    soup = BeautifulSoup(html, "html.parser")
+# 색상 그라데이션: 1등부터 연해지는 블루
+max_count = genre_count['횟수'].max()
+colors = [f'rgba(0,0,255,{0.3 + 0.7*(count/max_count)})' for count in genre_count['횟수']]
 
-    # OP.GG 페이지의 구조는 바뀔 수 있으므로 안전하게 'matches' 링크/블록을 찾는 시도
-    # 1) matches 블록을 찾고, 개별 match 엔트리 파싱
-    match_blocks = soup.select("div.matches, ul.matches, .match-list, .match_result")
-    # fallback find by 'matches' keyword
-    if not match_blocks:
-        match_blocks = soup.find_all(string=re.compile("Match result|경기 결과|Match schedules|match result", re.I))
+# Plotly 막대그래프
+fig = px.bar(
+    genre_count,
+    x='장르',
+    y='횟수',
+    text='횟수',
+    color='횟수',
+    color_continuous_scale=px.colors.sequential.Blues_r,  # 1등부터 연해지는 파랑
+)
 
-    # heuristic parse: 페이지 내의 <a href="/matches/XXXXX"> 링크를 찾아서 개별 match 페이지로 접근
-    match_links = set()
-    for a in soup.select("a"):
-        href = a.get("href") or ""
-        if "/matches/" in href and href.count("/")>=2:
-            # full or relative
-            full = href if href.startswith("http") else "https://esports.op.gg" + href
-            match_links.add(full)
-    match_links = sorted(match_links)
+fig.update_traces(textposition='outside')
+fig.update_layout(
+    title=f"✨ {selected_year}년 가장 많이 공연된 장르 TOP 🏆",
+    xaxis_title="장르",
+    yaxis_title="공연 수",
+    coloraxis_showscale=False,
+)
 
-    # Limit pages to avoid excessive crawling
-    if len(match_links) == 0:
-        # alternative: league schedule pages (LCK, Worlds...)에서 T1 관련 매치 찾기
-        # as fallback, try searching for 'matches' via op.gg schedule pages (short)
-        pass
+st.plotly_chart(fig, use_container_width=True)
 
-    # fetch and parse each match detail page (더 정확한 결과 획득)
-    for link in tqdm(match_links[:max_pages], desc="OP.GG matches"):
-        try:
-            txt = None
-            try:
-                r = requests.get(link, headers=HEADERS, timeout=10)
-                if r.status_code == 200:
-                    txt = r.text
-            except Exception:
-                txt = None
-            if (not txt or len(txt)<200) and SELENIUM_OK:
-                txt = render_url_with_selenium(link, wait_seconds=0.8)
-            if not txt:
-                continue
-            s = BeautifulSoup(txt, "html.parser")
-            # 날짜 찾기
-            date_text = s.find(string=re.compile(r"\d{4}\.\d{2}\.\d{2}|\w+\s+\d{1,2},\s*\d{4}", re.I))
-            date_obj = None
-            if date_text:
-                # try yyyy.mm.dd
-                m = re.search(r"(\d{4})\.(\d{2})\.(\d{2})", date_text)
-                if m:
-                    date_obj = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-                else:
-                    try:
-                        date_obj = datetime.fromisoformat(date_text.strip())
-                    except Exception:
-                        date_obj = None
-            # league
-            league = None
-            league_tag = s.select_one(".league, .match-league, .league-name")
-            if league_tag:
-                league = league_tag.get_text(strip=True)
-            # teams & score & result
-            # look for team blocks
-            team_blocks = s.select(".team")
-            # fallback by regex
-            text = s.get_text(" ", strip=True)
-            # try to determine opponent and winner by simple p
-
+st.write("💡 청소년 여러분, 이 해에는 어떤 장르가 유행했는지 눈치챘나요? 😎👀")
