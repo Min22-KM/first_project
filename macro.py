@@ -4,31 +4,49 @@ import numpy as np
 from pynput import keyboard
 
 # ------------------- 설정 -------------------
-REGION = (23, 157, 648, 611)  # (x, y, width, height)
-TARGET_COLOR = np.array([83, 176, 249])  # 좌석 색 (RGB)
-TOLERANCE = 20  # 색상 허용 범위 (중요)
-CONFIRM_BUTTON = (750, 655)  # 좌석 선택 버튼
+REGION = (23, 157, 648, 611)  # 좌석 영역
+
+# 🎯 여러 색상 (파랑 + 초록 + 보라)
+TARGET_COLORS = [
+    # 🔵 파랑
+    np.array([83, 176, 249]),
+    np.array([70, 150, 220]),
+
+    # 🟢 초록
+    np.array([79, 166, 52]),
+    np.array([90, 180, 70]),
+
+    # 🟣 보라
+    np.array([120, 105, 230]),
+    np.array([140, 120, 240]),
+]
+
+TOLERANCE = 40  # ⭐ 넉넉하게 (중요)
+CONFIRM_BUTTON = (750, 655)
 
 RUNNING = False
 
+
 # ------------------- 색상 탐색 -------------------
-def find_color_position(img, target_color, tol):
-    diff = np.abs(img - target_color)
-    mask = np.all(diff <= tol, axis=2)
+def find_color_position(img, target_colors, tol):
+    for color in target_colors:
+        diff = np.abs(img - color)
+        mask = np.all(diff <= tol, axis=2)
 
-    coords = np.argwhere(mask)
-    if coords.size == 0:
-        return None
+        coords = np.argwhere(mask)
+        if coords.size > 0:
+            y, x = coords.mean(axis=0).astype(int)
+            return x, y
 
-    y, x = coords.mean(axis=0).astype(int)
-    return x, y
+    return None
+
 
 # ------------------- 매크로 실행 -------------------
 def run_macro():
     screenshot = pyautogui.screenshot(region=REGION)
     img = np.array(screenshot.convert("RGB"))
 
-    pos = find_color_position(img, TARGET_COLOR, TOLERANCE)
+    pos = find_color_position(img, TARGET_COLORS, TOLERANCE)
 
     if pos:
         x, y = pos
@@ -45,6 +63,7 @@ def run_macro():
     else:
         print("[INFO] 색상 못 찾음")
 
+
 # ------------------- 키보드 제어 -------------------
 def on_press(key):
     global RUNNING
@@ -55,7 +74,8 @@ def on_press(key):
     except Exception as e:
         print("[ERROR]", e)
 
-# ------------------- 메인 -------------------
+
+# ------------------- 메인 루프 -------------------
 def main():
     print("F8 키로 시작/정지 | Ctrl+C 종료")
 
@@ -69,5 +89,7 @@ def main():
         else:
             time.sleep(0.1)
 
+
+# ------------------- 실행 -------------------
 if __name__ == "__main__":
     main()
