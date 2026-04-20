@@ -1,54 +1,86 @@
-### macro.py
-from pynput import keyboard
 import pyautogui
 import time
 import numpy as np
+from pynput import keyboard
 
 # ------------------- 설정 -------------------
-region = (23, 157, 648, 611)
-target_color = (79, 166, 52) # 초록
-# target_color = (120, 105, 230) # 보라
-tolerance = 5
-confirm_button = (750, 655)
+REGION = (23, 157, 648, 611)
+TARGET_COLOR = np.array([79, 166, 52])  # RGB
+TOLERANCE = 5
+CONFIRM_BUTTON = (750, 655)
 
-def color_match(c1, c2, tol):
-    return all(abs(a - b) <= tol for a, b in zip(c1, c2))
+RUNNING = False
+
+# ------------------- 핵심 로직 -------------------
+
+def find_color_position(img, target_color, tol):
+    """
+    numpy 기반 색상 탐색 (빠름)
+    """
+    diff = np.abs(img - target_color)
+    mask = np.all(diff <= tol, axis=2)
+
+    coords = np.argwhere(mask)
+    if coords.size == 0:
+        return None
+
+    # 중앙 좌표 반환 (더 정확한 클릭)
+    y, x = coords.mean(axis=0).astype(int)
+    return x, y
+
 
 def run_macro():
-    screenshot = pyautogui.screenshot(region=region)
+    screenshot = pyautogui.screenshot(region=REGION)
     img = np.array(screenshot.convert("RGB"))
 
-    found = False
-    for y in range(img.shape[0]):
-        for x in range(img.shape[1]):
-            r, g, b = img[y, x]
-            if color_match((r, g, b), target_color, tolerance):
-                real_x = region[0] + x
-                real_y = region[1] + y
-                pyautogui.click(real_x, real_y)
+    pos = find_color_position(img, TARGET_COLOR, TOLERANCE)
 
-                print(f"좌석 클릭 완료: ({real_x}, {real_y}) / 색상: ({r}, {g}, {b})")
+    if pos:
+        x, y = pos
+        real_x = REGION[0] + x
+        real_y = REGION[1] + y
 
-                pyautogui.click(*confirm_button)
-                print("좌석 선택 완료 버튼 클릭")
-                found = True
-                break
-        if found:
-            break
+        pyautogui.moveTo(real_x, real_y, duration=0.02)
+        pyautogui.click()
+        time.sleep(0.05)
 
-    if not found:
-        print("해당 색상을 찾지 못했습니다.")
+        pyautogui.click(*CONFIRM_BUTTON)
 
-# ------------------- 단축키 리스너 -------------------
+        print(f"[SUCCESS] 클릭: ({real_x}, {real_y})")
+        return True
+    else:
+        print("[INFO] 색상 못 찾음")
+        return False
+
+
+# ------------------- 키보드 제어 -------------------
 
 def on_press(key):
-    try:
-        if key == keyboard.Key.alt:
-            print("option 눌림 → 매크로 실행")
-            run_macro()
-    except Exception as e:
-        print("오류 발생:", e)
+    global RUNNING
 
-print("⌨️ option 키를 누르면 매크로가 실행됩니다. 종료하려면 Ctrl+C.")
-with keyboard.Listener(on_press=on_press) as listener:
-    listener.join()
+    try:
+        if key == keyboard.Key.alt_l:
+            RUNNING = not RUNNING
+            print(f"매크로 상태: {'ON' if RUNNING else 'OFF'}")
+
+    except Exception as e:
+        print("오류:", e)
+
+
+def start_loop():
+    print("⌨️ ALT(왼쪽)로 시작/정지 토글, Ctrl+C로 종료")
+
+    while True:
+        if RUNNING:
+            run_macro()
+            time.sleep(0.1)  # 너무 빠르면 오히려 불안정
+        else:
+            time.sleep(0.1)
+
+
+# ------------------- 실행 -------------------
+
+listener = keyboard.Listener(on_press=on_press)
+listener.start()
+
+start_loop()
