@@ -5,18 +5,15 @@ from pynput import keyboard
 
 # ------------------- 설정 -------------------
 REGION = (23, 157, 648, 611)
-TARGET_COLOR = np.array([79, 166, 52])  # RGB
-TOLERANCE = 5
+TARGET_COLOR = np.array([83, 176, 249])  # RGB
+TOLERANCE = 8
 CONFIRM_BUTTON = (750, 655)
 
 RUNNING = False
 
-# ------------------- 핵심 로직 -------------------
 
+# ------------------- 색상 탐색 -------------------
 def find_color_position(img, target_color, tol):
-    """
-    numpy 기반 색상 탐색 (빠름)
-    """
     diff = np.abs(img - target_color)
     mask = np.all(diff <= tol, axis=2)
 
@@ -24,11 +21,12 @@ def find_color_position(img, target_color, tol):
     if coords.size == 0:
         return None
 
-    # 중앙 좌표 반환 (더 정확한 클릭)
+    # 평균 좌표 → 중앙 클릭
     y, x = coords.mean(axis=0).astype(int)
     return x, y
 
 
+# ------------------- 매크로 실행 -------------------
 def run_macro():
     screenshot = pyautogui.screenshot(region=REGION)
     img = np.array(screenshot.convert("RGB"))
@@ -47,40 +45,39 @@ def run_macro():
         pyautogui.click(*CONFIRM_BUTTON)
 
         print(f"[SUCCESS] 클릭: ({real_x}, {real_y})")
-        return True
     else:
         print("[INFO] 색상 못 찾음")
-        return False
 
 
 # ------------------- 키보드 제어 -------------------
-
 def on_press(key):
     global RUNNING
 
     try:
-        if key == keyboard.Key.alt_l:
+        # 🔥 ALT 대신 안정적인 키 사용 (F8)
+        if key == keyboard.Key.f8:
             RUNNING = not RUNNING
-            print(f"매크로 상태: {'ON' if RUNNING else 'OFF'}")
+            print(f"[STATE] {'ON' if RUNNING else 'OFF'}")
 
     except Exception as e:
-        print("오류:", e)
+        print("[ERROR]", e)
 
 
-def start_loop():
-    print("⌨️ ALT(왼쪽)로 시작/정지 토글, Ctrl+C로 종료")
+# ------------------- 메인 루프 -------------------
+def main():
+    print("F8 키로 시작/정지 토글 | Ctrl+C 종료")
+
+    listener = keyboard.Listener(on_press=on_press)
+    listener.start()
 
     while True:
         if RUNNING:
             run_macro()
-            time.sleep(0.1)  # 너무 빠르면 오히려 불안정
+            time.sleep(0.1)
         else:
             time.sleep(0.1)
 
 
 # ------------------- 실행 -------------------
-
-listener = keyboard.Listener(on_press=on_press)
-listener.start()
-
-start_loop()
+if __name__ == "__main__":
+    main()
